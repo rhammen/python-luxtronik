@@ -30,3 +30,13 @@ WAIT_TIME_AFTER_PARAMETER_WRITE: Final = 1
 
 # The data from the config interface are transmitted in 32-bit chunks.
 LUXTRONIK_CFI_REGISTER_BIT_SIZE: Final = 32
+
+# Default timeout (in seconds) applied to connect/send/receive operations.
+LUXTRONIK_DEFAULT_TIMEOUT: Final = 60.0
+
+# Number of retries (on top of the initial attempt) for a transient
+# connection/protocol error before a read/write operation gives up.
+LUXTRONIK_MAX_RETRIES: Final = 4
+
+# Delay (in seconds) between retries.
+LUXTRONIK_RETRY_DELAY: Final = 1

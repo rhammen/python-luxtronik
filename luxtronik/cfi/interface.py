@@ -1,14 +1,16 @@
 """Main components of the Luxtronik config interface."""
 
+import asyncio
 import logging
 import socket
 import struct
-import time
 
 from luxtronik.collections import integrate_data
-from luxtronik.common import get_host_lock
 from luxtronik.cfi.constants import (
     LUXTRONIK_DEFAULT_PORT,
+    LUXTRONIK_DEFAULT_TIMEOUT,
+    LUXTRONIK_MAX_RETRIES,
+    LUXTRONIK_RETRY_DELAY,
     LUXTRONIK_PARAMETERS_WRITE,
     LUXTRONIK_PARAMETERS_READ,
     LUXTRONIK_CALCULATIONS_READ,
@@ -29,6 +31,7 @@ LOGGER = logging.getLogger(__name__)
 # Config interface data
 ###############################################################################
 
+
 class LuxtronikData:
     """
     Collection of parameters, calculations and visiblities.
@@ -43,60 +46,127 @@ class LuxtronikData:
     def get_firmware_version(self):
         return self.calculations.get_firmware_version()
 
+
 ###############################################################################
 # Config interface
 ###############################################################################
 
+
 class LuxtronikSocketInterface:
     """Luxtronik read/write interface via socket."""
 
-    def __init__(self, host, port=LUXTRONIK_DEFAULT_PORT):
-        # Acquire a lock object for this host to ensure thread safety
-        self._lock = get_host_lock(host)
-
+    def __init__(self, host, port=LUXTRONIK_DEFAULT_PORT, timeout=LUXTRONIK_DEFAULT_TIMEOUT):
         self._host = host
         self._port = port
-        self._socket = None
+        self._timeout = timeout
+        self._connection_lock = asyncio.Lock()
+        self._reader = None
+        self._writer = None
 
-    @property
-    def lock(self):
-        return self._lock
+    async def __aenter__(self):
+        await self.connect()
+        return self
 
-    def _with_lock_and_connect(self, func, *args, **kwargs):
-        """
-        Decorator around various read/write functions to connect first.
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+        return False
 
-        This method is essentially a wrapper for the _read() and _write() methods.
-        Locking is being used to ensure that only a single socket operation is
-        performed at any point in time. This helps to avoid issues with the
-        Luxtronik controller, which seems unstable otherwise.
-        """
-        with self.lock:
+    async def connect(self):
+        """Establish the persistent connection to the heat pump, if not already connected."""
+        async with self._connection_lock:
+            await self._ensure_connected()
+
+    async def close(self):
+        """Explicitly close the connection to the heat pump."""
+        async with self._connection_lock:
+            await self._disconnect()
+
+    async def _ensure_connected(self):
+        "Low-level helper to (re)open the persistent connection if needed"
+        if self._writer is not None and not self._writer.is_closing():
+            return
+        await self._disconnect()
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self._host, self._port), timeout=self._timeout
+        )
+        LOGGER.info("Connected to CFI of Luxtronik heat pump %s:%s", self._host, self._port)
+
+    async def _disconnect(self):
+        "Low-level helper to tear down the persistent connection, if any"
+        if self._writer is not None:
+            self._writer.close()
             try:
-                ret_val = None
-                with socket.create_connection((self._host, self._port)) as sock:
-                    self._socket = sock
-                    LOGGER.info("Connected to CFI of Luxtronik heat pump %s:%s", self._host, self._port)
-                    ret_val = func(*args, **kwargs)
-            except socket.gaierror as e:
-                LOGGER.error("Failed to connect to Luxtronik heat pump %s:%s. %s.",
-                    self._host, self._port, f"Address-related error: {e}")
-            except socket.timeout as e:
-                LOGGER.error("Failed to connect to Luxtronik heat pump %s:%s. %s.",
-                    self._host, self._port, f"Connection timed out: {e}")
-            except ConnectionRefusedError as e:
-                LOGGER.error("Failed to connect to Luxtronik heat pump %s:%s. %s.",
-                    self._host, self._port, f"Connection refused: {e}")
-            except OSError as e:
-                LOGGER.error("Failed to connect to Luxtronik heat pump %s:%s. %s.",
-                    self._host, self._port, f"OS error during connect: {e}")
-            except Exception as e:
-                LOGGER.error("Failed to connect to Luxtronik heat pump %s:%s. %s.",
-                    self._host, self._port, f"Unknown exception: {e}")
-        self._socket = None
-        return ret_val
+                await self._writer.wait_closed()
+            except OSError:
+                pass
+        self._reader = None
+        self._writer = None
 
-    def read(self, data=None):
+    async def _with_lock_and_connect(self, func, *args, **kwargs):
+        """
+        Wrapper around various read/write functions to ensure a connection first.
+
+        Locking is being used to ensure that only a single operation is performed
+        at any point in time on this instance's persistent connection. Transient
+        connection/protocol errors are retried a limited number of times, with a
+        short delay and a reconnect in between, before giving up.
+        """
+        async with self._connection_lock:
+            ret_val = None
+            for attempt in range(LUXTRONIK_MAX_RETRIES + 1):
+                try:
+                    await self._ensure_connected()
+                    return await func(*args, **kwargs)
+                except socket.gaierror as e:
+                    LOGGER.error(
+                        "Failed to connect to Luxtronik heat pump %s:%s. %s.",
+                        self._host,
+                        self._port,
+                        f"Address-related error: {e}",
+                    )
+                except asyncio.TimeoutError as e:
+                    LOGGER.error(
+                        "Failed to communicate with Luxtronik heat pump %s:%s. %s.",
+                        self._host,
+                        self._port,
+                        f"Operation timed out: {e}",
+                    )
+                except ConnectionRefusedError as e:
+                    LOGGER.error(
+                        "Failed to connect to Luxtronik heat pump %s:%s. %s.",
+                        self._host,
+                        self._port,
+                        f"Connection refused: {e}",
+                    )
+                except (OSError, asyncio.IncompleteReadError) as e:
+                    LOGGER.error(
+                        "Failed to communicate with Luxtronik heat pump %s:%s. %s.",
+                        self._host,
+                        self._port,
+                        f"OS/protocol error: {e}",
+                    )
+                except Exception as e:
+                    LOGGER.error(
+                        "Failed to communicate with Luxtronik heat pump %s:%s. %s.",
+                        self._host,
+                        self._port,
+                        f"Unknown exception: {e}",
+                    )
+                    await self._disconnect()
+                    return None
+                await self._disconnect()
+                if attempt < LUXTRONIK_MAX_RETRIES:
+                    LOGGER.warning(
+                        "%s: Retrying in %s second(s) (attempt %d/%d)...",
+                        self._host,
+                        LUXTRONIK_RETRY_DELAY,
+                        attempt + 1,
+                        LUXTRONIK_MAX_RETRIES + 1,
+                    )
+                    await asyncio.sleep(LUXTRONIK_RETRY_DELAY)
+            return ret_val
+
+    async def read(self, data=None):
         """
         All available data will be read from the heat pump
         and integrated to the passed data object.
@@ -104,45 +174,45 @@ class LuxtronikSocketInterface:
         """
         if data is None:
             data = LuxtronikData()
-        return self._with_lock_and_connect(self._read, data)
+        return await self._with_lock_and_connect(self._read, data)
 
-    def read_parameters(self, parameters=None):
+    async def read_parameters(self, parameters=None):
         """
         Read parameters from heat pump and integrate them to the passed dictionary.
         This dictionary is returned afterwards, mainly for access to a newly created.
         """
         if parameters is None:
             parameters = Parameters()
-        return self._with_lock_and_connect(self._read_parameters, parameters)
+        return await self._with_lock_and_connect(self._read_parameters, parameters)
 
-    def read_calculations(self, calculations=None):
+    async def read_calculations(self, calculations=None):
         """
         Read calculations from heat pump and integrate them to the passed dictionary.
         This dictionary is returned afterwards, mainly for access to a newly created.
         """
         if calculations is None:
             calculations = Calculations()
-        return self._with_lock_and_connect(self._read_calculations, calculations)
+        return await self._with_lock_and_connect(self._read_calculations, calculations)
 
-    def read_visibilities(self, visibilities=None):
+    async def read_visibilities(self, visibilities=None):
         """
         Read visibilities from heat pump and integrate them to the passed dictionary.
         This dictionary is returned afterwards, mainly for access to a newly created.
         """
         if visibilities is None:
             visibilities = Visibilities()
-        return self._with_lock_and_connect(self._read_visibilities, visibilities)
+        return await self._with_lock_and_connect(self._read_visibilities, visibilities)
 
-    def write(self, parameters):
+    async def write(self, parameters):
         """
         Write all set parameters to the heat pump.
         :param Parameters() parameters  Parameter dictionary to be written
                           to the heatpump before reading all available data
                           from the heat pump.
         """
-        self._with_lock_and_connect(self._write, parameters)
+        await self._with_lock_and_connect(self._write, parameters)
 
-    def write_and_read(self, parameters, data=None):
+    async def write_and_read(self, parameters, data=None):
         """
         Write all set parameter to the heat pump (see write())
         prior to reading back in all data from the heat pump (see read())
@@ -150,19 +220,19 @@ class LuxtronikSocketInterface:
         """
         if data is None:
             data = LuxtronikData()
-        return self._with_lock_and_connect(self._write_and_read, parameters, data)
+        return await self._with_lock_and_connect(self._write_and_read, parameters, data)
 
-    def _read(self, data):
-        self._read_parameters(data.parameters)
-        self._read_calculations(data.calculations)
-        self._read_visibilities(data.visibilities)
+    async def _read(self, data):
+        await self._read_parameters(data.parameters)
+        await self._read_calculations(data.calculations)
+        await self._read_visibilities(data.visibilities)
         return data
 
-    def _write_and_read(self, parameters, data):
-        self._write(parameters)
-        return self._read(data)
+    async def _write_and_read(self, parameters, data):
+        await self._write(parameters)
+        return await self._read(data)
 
-    def _write(self, parameters):
+    async def _write(self, parameters):
         if not isinstance(parameters, Parameters):
             LOGGER.error("Only parameters are writable!")
             return
@@ -180,91 +250,80 @@ class LuxtronikSocketInterface:
                     )
                     continue
                 LOGGER.debug("%s: Parameter '%d' set to '%s'", self._host, definition.index, value)
-                self._send_ints(LUXTRONIK_PARAMETERS_WRITE, definition.index, value)
-                cmd = self._read_int()
+                await self._send_ints(LUXTRONIK_PARAMETERS_WRITE, definition.index, value)
+                cmd = await self._read_int()
                 LOGGER.debug("%s: Command %s", self._host, cmd)
-                val = self._read_int()
+                val = await self._read_int()
                 LOGGER.debug("%s: Value %s", self._host, val)
                 count += 1
         LOGGER.info("%s: Write %d parameters", self._host, count)
         # Give the heatpump a short time to handle the value changes/calculations:
-        time.sleep(WAIT_TIME_AFTER_PARAMETER_WRITE)
+        await asyncio.sleep(WAIT_TIME_AFTER_PARAMETER_WRITE)
 
-    def _read_parameters(self, parameters):
+    async def _read_parameters(self, parameters):
         data = []
-        self._send_ints(LUXTRONIK_PARAMETERS_READ, 0)
-        cmd = self._read_int()
+        await self._send_ints(LUXTRONIK_PARAMETERS_READ, 0)
+        cmd = await self._read_int()
         LOGGER.debug("%s: Command %s", self._host, cmd)
-        length = self._read_int()
+        length = await self._read_int()
         LOGGER.debug("%s: Length %s", self._host, length)
         for _ in range(0, length):
-            data.append(self._read_int())
+            data.append(await self._read_int())
         LOGGER.info("%s: Read %d parameters", self._host, length)
         self._parse(parameters, data)
         return parameters
 
-    def _read_calculations(self, calculations):
+    async def _read_calculations(self, calculations):
         data = []
-        self._send_ints(LUXTRONIK_CALCULATIONS_READ, 0)
-        cmd = self._read_int()
+        await self._send_ints(LUXTRONIK_CALCULATIONS_READ, 0)
+        cmd = await self._read_int()
         LOGGER.debug("%s: Command %s", self._host, cmd)
-        stat = self._read_int()
+        stat = await self._read_int()
         LOGGER.debug("%s: Stat %s", self._host, stat)
-        length = self._read_int()
+        length = await self._read_int()
         LOGGER.debug("%s: Length %s", self._host, length)
         for _ in range(0, length):
-            data.append(self._read_int())
+            data.append(await self._read_int())
         LOGGER.info("%s: Read %d calculations", self._host, length)
         self._parse(calculations, data)
         return calculations
 
-    def _read_visibilities(self, visibilities):
+    async def _read_visibilities(self, visibilities):
         data = []
-        self._send_ints(LUXTRONIK_VISIBILITIES_READ, 0)
-        cmd = self._read_int()
+        await self._send_ints(LUXTRONIK_VISIBILITIES_READ, 0)
+        cmd = await self._read_int()
         LOGGER.debug("%s: Command %s", self._host, cmd)
-        length = self._read_int()
+        length = await self._read_int()
         LOGGER.debug("%s: Length %s", self._host, length)
         for _ in range(0, length):
-            data.append(self._read_char())
+            data.append(await self._read_char())
         LOGGER.info("%s: Read %d visibilities", self._host, length)
         self._parse(visibilities, data)
         return visibilities
 
-    def _send_ints(self, *ints):
+    async def _send_ints(self, *ints):
         "Low-level helper to send a tuple of ints"
         data = struct.pack(">" + "i" * len(ints), *ints)
         LOGGER.debug("%s: sending %s", self._host, data)
-        self._socket.sendall(data)
+        self._writer.write(data)
+        await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
-    def _read_bytes(self, count):
+    async def _read_bytes(self, count):
         "Low-level helper to receive a precise number of bytes"
-        total_reading = b""
+        try:
+            return await asyncio.wait_for(self._reader.readexactly(count), timeout=self._timeout)
+        except asyncio.IncompleteReadError as e:
+            LOGGER.error("%s: Connection died.", self._host)
+            raise ConnectionError("Connection to %s died." % self._host) from e
 
-        while len(total_reading) is not count:
-            missing = count - len(total_reading)
-
-            reading = self._socket.recv( missing )
-
-            if len(reading) == 0:
-                LOGGER.error("%s: Connection died.", self._host)
-                raise ConnectionError("Connection to %s died." % self._host)
-
-            total_reading += reading
-
-            if len(reading) is not missing:
-                LOGGER.debug("%s: received %s bytes out of %s bytes. Will read again.", self._host, len(reading), missing)
-
-        return total_reading
-
-    def _read_int(self):
+    async def _read_int(self):
         "Low-level helper to receive an int"
-        reading = self._read_bytes(LUXTRONIK_SOCKET_READ_SIZE_INTEGER)
+        reading = await self._read_bytes(LUXTRONIK_SOCKET_READ_SIZE_INTEGER)
         return struct.unpack(">i", reading)[0]
 
-    def _read_char(self):
+    async def _read_char(self):
         "Low-level helper to receive a signed int"
-        reading = self._read_bytes(LUXTRONIK_SOCKET_READ_SIZE_CHAR)
+        reading = await self._read_bytes(LUXTRONIK_SOCKET_READ_SIZE_CHAR)
         return struct.unpack(">b", reading)[0]
 
     def _parse(self, data_vector, raw_data):
