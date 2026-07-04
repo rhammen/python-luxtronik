@@ -23,6 +23,12 @@ is required for this. See README for further information. [#190]
 of in a separate queue. [#221, #237]
 - The field objects now provide `datatype_class` and `datatype_unit`
 instead of `measurement_type`
+- `LuxtronikSocketInterface` (config interface / port 8889) is now
+asyncio-native: all read/write methods are coroutines, the connection
+is persistent with automatic reconnect-on-error and retry-with-backoff
+instead of opening/closing a socket per call, and `connect()`/`close()`
+(plus `async with` support) replace implicit connection handling. See
+[#133](https://github.com/Bouni/python-luxtronik/issues/133).
 
 ### Removed
 
