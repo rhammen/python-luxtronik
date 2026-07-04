@@ -1,4 +1,4 @@
-import socket
+import asyncio
 import struct
 
 from luxtronik import Parameters, Calculations, Visibilities
@@ -17,9 +17,15 @@ def fake_visibility_value(i):
 
 
 class FakeSocket:
+    """
+    Fake persistent-connection state, shared by a FakeStreamReader/FakeStreamWriter
+    pair, standing in for the (reader, writer) tuple `asyncio.open_connection()`
+    would normally return.
+    """
+
     last_instance = None
     prev_instance = None
-    create_connection_exception = None
+    open_connection_exception = None
     force_recv_result = None
 
     # These code are hard coded here in order to prevent
@@ -33,9 +39,8 @@ class FakeSocket:
         FakeSocket.prev_instance = FakeSocket.last_instance
         FakeSocket.last_instance = self
 
-        self._connected = False
+        self._closing = False
         self._buffer = b""
-        self._blocking = False
 
         # Offer some more entries
         self._num_paras = len(Parameters()._data) + 10
@@ -44,24 +49,20 @@ class FakeSocket:
 
         self.written_values = {}
 
-    def setblocking(self, blocking):
-        self._blocking = blocking
-
-    def connect(self):
-        assert not self._connected
-        self._connected = True
-
     def close(self):
-        self._connected = False
+        self._closing = True
 
-    def sendall(self, data):
-        assert self._connected
+    def is_closing(self):
+        return self._closing
+
+    def write(self, data):
+        assert not self._closing
 
         cnt = len(data) // 4
         content = struct.unpack(">" + "i" * cnt, data)
 
         # Next, we compute our response, which is saved in self._buffer.
-        # The client can read the response with self.recv()
+        # The client can read the response with self.readexactly()
 
         if content[0] == FakeSocket.code_write_parameter:
             # Client wants to write a parameters
@@ -124,37 +125,52 @@ class FakeSocket:
             for i in range(response_cnt):
                 self._buffer += struct.pack(">b", fake_visibility_value(i))
 
-    def recv(self, cnt, flag=0):
-        assert self._connected
+    async def readexactly(self, count):
+        assert not self._closing
 
         if FakeSocket.force_recv_result is not None:
-            return FakeSocket.force_recv_result
+            data = FakeSocket.force_recv_result
+            if len(data) < count:
+                raise asyncio.IncompleteReadError(partial=data, expected=count)
+            return data[:count]
 
-        if (not self._blocking) and len(self._buffer) < cnt:
-            raise BlockingIOError("Not enough bytes in buffer.")
+        assert len(self._buffer) >= count
 
-        assert len(self._buffer) >= cnt
-
-        data = self._buffer[0:cnt]
-
-        if not (flag & socket.MSG_PEEK):
-            # Remove data from buffer
-            self._buffer = self._buffer[cnt:]
-
+        data = self._buffer[0:count]
+        self._buffer = self._buffer[count:]
         return data
 
-# --- Context manager support ---
-    def __enter__(self):
-        self.connect()
-        return self
 
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
+class FakeStreamWriter:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def write(self, data):
+        self._conn.write(data)
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self._conn.close()
+
+    async def wait_closed(self):
+        pass
+
+    def is_closing(self):
+        return self._conn.is_closing()
 
 
-def fake_create_connection(info):
-    if FakeSocket.create_connection_exception is not None:
-        raise FakeSocket.create_connection_exception
-    else:
-        return FakeSocket()
+class FakeStreamReader:
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def readexactly(self, count):
+        return await self._conn.readexactly(count)
+
+
+async def fake_open_connection(host, port):
+    if FakeSocket.open_connection_exception is not None:
+        raise FakeSocket.open_connection_exception
+    conn = FakeSocket()
+    return FakeStreamReader(conn), FakeStreamWriter(conn)

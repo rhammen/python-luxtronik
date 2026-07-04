@@ -9,6 +9,6 @@ from tests.fake.fake_socket import (
     fake_calculation_value,  # noqa: F401
     fake_visibility_value,  # noqa: F401
     FakeSocket,  # noqa: F401
-    fake_create_connection  # noqa: F401
+    fake_open_connection  # noqa: F401
 )
 from tests.fake.fake_update_screen import FakeScreen  # noqa: F401

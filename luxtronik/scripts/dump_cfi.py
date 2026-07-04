@@ -5,24 +5,31 @@
 Script to dump all available config interface values of the Luxtronik controller
 """
 
-from luxtronik import Luxtronik, LUXTRONIK_DEFAULT_PORT
+import asyncio
+
+from luxtronik import LuxtronikSocketInterface, LUXTRONIK_DEFAULT_PORT
 from luxtronik.scripts import create_default_args_parser, dump_fields
 
 
-def dump_all(client):
-    dump_fields(client.parameters)
-    dump_fields(client.calculations)
-    dump_fields(client.visibilities)
+def dump_all(data):
+    dump_fields(data.parameters)
+    dump_fields(data.calculations)
+    dump_fields(data.visibilities)
 
-def dump_cfi():
+
+async def dump_cfi_async():
     parser = create_default_args_parser(
-        "Dumps all config interface values of the Luxtronik controller",
-        LUXTRONIK_DEFAULT_PORT
+        "Dumps all config interface values of the Luxtronik controller", LUXTRONIK_DEFAULT_PORT
     )
     args = parser.parse_args()
     print(f"Dump CFI of {args.ip}:{args.port}")
-    client = Luxtronik(args.ip, args.port)
-    dump_all(client)
+    async with LuxtronikSocketInterface(args.ip, args.port) as client:
+        data = await client.read()
+        dump_all(data)
+
+
+def dump_cfi():
+    asyncio.run(dump_cfi_async())
 
 
 if __name__ == "__main__":
