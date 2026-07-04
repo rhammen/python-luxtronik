@@ -1,79 +1,69 @@
+from pymodbus.client import AsyncModbusTcpClient
 
-from pyModbusTCP.client import ModbusClient
+
+class FakeResponse:
+    def __init__(self, registers=None, error=False):
+        self._registers = registers if registers is not None else []
+        self._error = error
+
+    def isError(self):
+        return self._error
+
+    @property
+    def registers(self):
+        return self._registers
 
 
-class FakeModbusClient(ModbusClient):
+class FakeModbusClient(AsyncModbusTcpClient):
     can_connect = True
-    can_disconnect = True
 
     def __init__(self, host, port=0, timeout=0, *args, **kwargs):
         self._host = host
         self._port = port
         self._timeout = timeout
         self._connected = False
-        self._error = 'None'
 
-    def open(self):
-        if self.can_connect:
-            self._connected = True
-        self._error = 'None' if self.can_connect else 'Connection error!'
-        return self.can_connect
-
-    def close(self):
-        if self.can_disconnect:
-            self._connected = False
-        self._error = 'None' if self.can_disconnect else 'Disconnection error!'
-        return self.can_disconnect
-
-    @property
-    def is_open(self):
+    async def connect(self):
+        self._connected = self.can_connect
         return self._connected
 
-    @property
-    def last_error_as_txt(self):
-        return self._error
+    def close(self):
+        self._connected = False
 
-    def _read(self, addr, count):
+    @property
+    def connected(self):
+        return self._connected
+
+    async def _read(self, addr, count):
         if addr == 1000:
-            # Return None
-            self._error = 'Read returned "None"!'
-            return None
+            # Error response
+            return FakeResponse(error=True)
         elif addr == 1001:
-            # Return empty data
-            self._error = 'Read returned to less data!'
-            return []
+            # Return too little data
+            return FakeResponse(registers=[])
         elif addr == 1002:
             # Return too much data
-            self._error = 'Read returned to few data!'
-            return [0] * 16
+            return FakeResponse(registers=[0] * 16)
         elif addr == 1003:
             # Exception
-            self._error = 'Exception!'
-            raise
+            raise Exception("Simulated Modbus exception")
         else:
             # Return the addr as value(s)
-            self._error = 'None'
-            values = []
-            for i in range(count):
-                values += [addr + i]
-            return values
+            values = [addr + i for i in range(count)]
+            return FakeResponse(registers=values)
 
-    def read_holding_registers(self, addr, count):
-        return self._read(addr, count)
+    async def read_holding_registers(self, addr, *, count=1, **kwargs):
+        return await self._read(addr, count)
 
-    def read_input_registers(self, addr, count):
-        return self._read(addr, count)
+    async def read_input_registers(self, addr, *, count=1, **kwargs):
+        return await self._read(addr, count)
 
-    def write_multiple_registers(self, addr, data):
+    async def write_registers(self, addr, values, **kwargs):
         if addr == 1000:
-            # Return false
-            self._error = 'Write error!'
-            return False
+            # Error response
+            return FakeResponse(error=True)
         elif addr == 1001:
             # Exception
-            self._error = 'Exception!'
-            raise
+            raise Exception("Simulated Modbus exception")
         else:
-            # Return true
-            self._error = 'None'
-            return True
+            return FakeResponse()

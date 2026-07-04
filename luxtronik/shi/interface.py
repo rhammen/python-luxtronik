@@ -9,10 +9,7 @@ from luxtronik.definitions import (
     LuxtronikDefinition,
     LuxtronikDefinitionsList,
 )
-from luxtronik.shi.constants import (
-    LUXTRONIK_LATEST_SHI_VERSION,
-    LUXTRONIK_SHI_REGISTER_BIT_SIZE
-)
+from luxtronik.shi.constants import LUXTRONIK_LATEST_SHI_VERSION, LUXTRONIK_SHI_REGISTER_BIT_SIZE
 from luxtronik.shi.common import (
     LuxtronikSmartHomeReadHoldingsTelegram,
     LuxtronikSmartHomeReadInputsTelegram,
@@ -34,6 +31,7 @@ SAFE = True
 # Smart home interface data
 ###############################################################################
 
+
 class LuxtronikSmartHomeData:
     """
     Data-vector collection for all smart home interface data vectors.
@@ -42,13 +40,7 @@ class LuxtronikSmartHomeData:
     the smart home data exposed by the Luxtronik controller.
     """
 
-    def __init__(
-        self,
-        holdings=None,
-        inputs=None,
-        version=LUXTRONIK_LATEST_SHI_VERSION,
-        safe=SAFE
-    ):
+    def __init__(self, holdings=None, inputs=None, version=LUXTRONIK_LATEST_SHI_VERSION, safe=SAFE):
         """
         Initialize a LuxtronikSmartHomeData instance.
 
@@ -68,11 +60,7 @@ class LuxtronikSmartHomeData:
         self.inputs = inputs if inputs is not None else Inputs(version)
 
     @classmethod
-    def empty(
-        cls,
-        version=LUXTRONIK_LATEST_SHI_VERSION,
-        safe=SAFE
-    ):
+    def empty(cls, version=LUXTRONIK_LATEST_SHI_VERSION, safe=SAFE):
         """
         Initialize an empty LuxtronikSmartHomeData instance
         (= no fields are added to the data-vectors).
@@ -89,9 +77,11 @@ class LuxtronikSmartHomeData:
         obj.inputs = Inputs.empty(version)
         return obj
 
+
 ###############################################################################
 # Smart home interface
 ###############################################################################
+
 
 class LuxtronikSmartHomeInterface:
     """
@@ -129,7 +119,7 @@ class LuxtronikSmartHomeInterface:
     def version(self):
         return self._version
 
-# Helper methods ##############################################################
+    # Helper methods ##############################################################
 
     def _get_definition(self, def_name_or_idx, definitions):
         """
@@ -210,17 +200,14 @@ class LuxtronikSmartHomeInterface:
         if definition is not None:
             return definition
 
-        LOGGER.debug(
-            f"Definition for {def_name_or_idx} not found. Attempting to create a temporary one."
-        )
+        LOGGER.debug(f"Definition for {def_name_or_idx} not found. Attempting to create a temporary one.")
 
         # Handle unknown names like 'Unknown_Input_105'
         if isinstance(def_name_or_idx, str) and def_name_or_idx.lower().startswith("unknown_"):
             index = self._get_index_from_name(def_name_or_idx)
             if index is None:
                 LOGGER.debug(
-                    "Cannot determine index from name '{def_name_or_idx}'. " \
-                    + "Use format 'Unknown_Input_INDEX'."
+                    "Cannot determine index from name '{def_name_or_idx}'. " + "Use format 'Unknown_Input_INDEX'."
                 )
                 return None
             return definitions.create_unknown_definition(index)
@@ -236,8 +223,7 @@ class LuxtronikSmartHomeInterface:
         LOGGER.debug(f"Could not find or generate a definition for {def_name_or_idx}.")
         return None
 
-
-# Telegram methods ############################################################
+    # Telegram methods ############################################################
 
     def _create_read_telegram(self, block, telegram_type):
         """
@@ -267,8 +253,7 @@ class LuxtronikSmartHomeInterface:
         """
         data_arr = block.get_data_arr()
         if data_arr is None:
-            LOGGER.error(f"Failed to create a {telegram_type} telegram! " \
-                + "The provided data is not valid.")
+            LOGGER.error(f"Failed to create a {telegram_type} telegram! " + "The provided data is not valid.")
             return None
         return telegram_type(block.first_addr, data_arr)
 
@@ -320,7 +305,7 @@ class LuxtronikSmartHomeInterface:
         """
         success = True
         for block, telegram, read_not_write in telegrams_data:
-            if (read_not_write == READ):
+            if read_not_write == READ:
                 # integrate_data() also resets the write_pending flag,
                 # intentionally only for read fields
                 valid = block.integrate_data(telegram.data)
@@ -333,8 +318,7 @@ class LuxtronikSmartHomeInterface:
                     part.field.write_pending = False
         return success
 
-
-# Main methods ################################################################
+    # Main methods ################################################################
 
     def _prepare_read_field(self, definition, field):
         """
@@ -390,14 +374,12 @@ class LuxtronikSmartHomeInterface:
 
         # Abort if insufficient data is provided
         if not get_data_arr(definition, field, LUXTRONIK_SHI_REGISTER_BIT_SIZE):
-            LOGGER.warning("Data error / insufficient data provided: " \
-                + f"name={definition.name}, data={field.raw}")
+            LOGGER.warning("Data error / insufficient data provided: " + f"name={definition.name}, data={field.raw}")
             return False
 
         return True
 
-    def _collect_field(self, blocks_list, def_field_name_or_idx, definitions, \
-        read_not_write, safe, data):
+    def _collect_field(self, blocks_list, def_field_name_or_idx, definitions, read_not_write, safe, data):
         """
         Add a single field to the blocks list.
 
@@ -463,10 +445,10 @@ class LuxtronikSmartHomeInterface:
         if self._version is None:
             # Trial-and-error mode: Add a block for every field
             blocks = ContiguousDataBlockList(definitions.name, read_not_write)
-            if (read_not_write == READ):
+            if read_not_write == READ:
                 for definition, field in data_vector.data.items():
                     # _prepare_read_field will never fail, no need to call it
-                    #if self._prepare_read_field(definition, field):
+                    # if self._prepare_read_field(definition, field):
                     blocks.append_single(definition, field)
             else:
                 for definition, field in data_vector.data.items():
@@ -475,7 +457,7 @@ class LuxtronikSmartHomeInterface:
             if len(blocks) > 0:
                 blocks_list.append(blocks)
         else:
-            if (read_not_write == READ):
+            if read_not_write == READ:
                 # We can directly use the prepared read-blocks
                 data_vector.update_read_blocks()
                 if len(data_vector._read_blocks) > 0:
@@ -489,7 +471,7 @@ class LuxtronikSmartHomeInterface:
                 if len(blocks) > 0:
                     blocks_list.append(blocks)
 
-    def _send_and_integrate(self, blocks_list):
+    async def _send_and_integrate(self, blocks_list):
         """
         Generate all necessary telegrams and then send them.
         Subsequently, the retrieved data is integrated into the provided fields.
@@ -505,32 +487,31 @@ class LuxtronikSmartHomeInterface:
         telegrams_data = self._create_telegrams(blocks_list)
         # Send all telegrams. The retrieved data is returned within the telegrams
         telegrams = [data[1] for data in telegrams_data]
-        success = self._interface.send(telegrams)
+        success = await self._interface.send(telegrams)
         # Report send/received data
-        count = {'hr': 0, 'hw': 0, 'ir': 0, 'u': 0}
+        count = {"hr": 0, "hw": 0, "ir": 0, "u": 0}
         for t in telegrams:
             if isinstance(t, LuxtronikSmartHomeReadHoldingsTelegram):
-                count['hr'] += t.count
+                count["hr"] += t.count
             elif isinstance(t, LuxtronikSmartHomeReadInputsTelegram):
-                count['ir'] += t.count
+                count["ir"] += t.count
             elif isinstance(t, LuxtronikSmartHomeWriteHoldingsTelegram):
-                count['hw'] += t.count
+                count["hw"] += t.count
             else:
-                count['u'] += t.count
-        if count['hr'] > 0:
+                count["u"] += t.count
+        if count["hr"] > 0:
             LOGGER.info(f"{self._interface._host}: Read {count['hr']} holdings")
-        if count['ir'] > 0:
+        if count["ir"] > 0:
             LOGGER.info(f"{self._interface._host}: Read {count['ir']} inputs")
-        if count['hw'] > 0:
+        if count["hw"] > 0:
             LOGGER.info(f"{self._interface._host}: Write {count['hw']} holdings")
-        if count['u'] > 0:
+        if count["u"] > 0:
             LOGGER.info(f"{self._interface._host}: Write {count['u']} unknowns?")
         # Transfer the data from the telegrams into the fields
         success &= self._integrate_data(telegrams_data)
         return success
 
-
-# Collect and send methods ####################################################
+    # Collect and send methods ####################################################
 
     def collect_holding_for_read(self, def_field_name_or_idx):
         """
@@ -544,8 +525,7 @@ class LuxtronikSmartHomeInterface:
         Returns:
             Base | None: The field object with integrated data, or None in case of an error.
         """
-        return self._collect_field(self._blocks_list, def_field_name_or_idx, \
-            self.holdings, READ, SAFE, None)
+        return self._collect_field(self._blocks_list, def_field_name_or_idx, self.holdings, READ, SAFE, None)
 
     def collect_holding_for_write(self, def_field_name_or_idx, data=None, safe=True):
         """
@@ -561,8 +541,7 @@ class LuxtronikSmartHomeInterface:
         Returns:
             Base | None: The field object with integrated data, or None in case of an error.
         """
-        return self._collect_field(self._blocks_list, def_field_name_or_idx, \
-            self.holdings, WRITE, safe, data)
+        return self._collect_field(self._blocks_list, def_field_name_or_idx, self.holdings, WRITE, safe, data)
 
     def collect_holding(self, def_field_name_or_idx, data=None, safe=True):
         """
@@ -578,12 +557,10 @@ class LuxtronikSmartHomeInterface:
         Returns:
             Base | None: The field object with integrated data, or None in case of an error.
         """
-        field = self._collect_field(self._blocks_list, def_field_name_or_idx, \
-            self.holdings, WRITE, safe, data)
+        field = self._collect_field(self._blocks_list, def_field_name_or_idx, self.holdings, WRITE, safe, data)
         if field is None:
             return None
-        self._collect_field(self._blocks_list, field, \
-            self.holdings, READ, SAFE, None)
+        self._collect_field(self._blocks_list, field, self.holdings, READ, SAFE, None)
         return field
 
     def collect_holdings_for_read(self, holdings):
@@ -633,8 +610,7 @@ class LuxtronikSmartHomeInterface:
         Returns:
             Base | None: The field object with integrated data, or None in case of an error.
         """
-        return self._collect_field(self._blocks_list, def_field_name_or_idx, \
-            self.inputs, READ, SAFE, None)
+        return self._collect_field(self._blocks_list, def_field_name_or_idx, self.inputs, READ, SAFE, None)
 
     def collect_inputs(self, inputs):
         """
@@ -689,7 +665,7 @@ class LuxtronikSmartHomeInterface:
         self.collect_data_for_write(data)
         self.collect_data_for_read(data)
 
-    def send(self):
+    async def send(self):
         """
         Send all collected operations via the "collect" methods.
         Afterwards clears the internal list of operations.
@@ -697,12 +673,11 @@ class LuxtronikSmartHomeInterface:
         Returns:
             bool: True if no errors occurred, otherwise False.
         """
-        success = self._send_and_integrate(self._blocks_list)
+        success = await self._send_and_integrate(self._blocks_list)
         self._blocks_list = []
         return success
 
-
-# Holding methods #############################################################
+    # Holding methods #############################################################
 
     @classproperty
     def holdings(cls):
@@ -767,7 +742,7 @@ class LuxtronikSmartHomeInterface:
         """
         return Holdings.empty(self._version, safe)
 
-    def read_holding(self, def_field_name_or_idx):
+    async def read_holding(self, def_field_name_or_idx):
         """
         Read the data of a single field.
 
@@ -785,10 +760,10 @@ class LuxtronikSmartHomeInterface:
                 or None if the read failed.
         """
         field = self.collect_holding_for_read(def_field_name_or_idx)
-        success = self.send()
+        success = await self.send()
         return field if success else None
 
-    def read_holdings(self, holdings=None):
+    async def read_holdings(self, holdings=None):
         """
         Read the data of all fields within the holdings data vector
         that are supported by the controller. All others are filled with None.
@@ -804,10 +779,10 @@ class LuxtronikSmartHomeInterface:
             holdings = self.create_holdings(SAFE)
 
         self.collect_holdings_for_read(holdings)
-        self.send()
+        await self.send()
         return holdings
 
-    def write_holding(self, def_field_name_or_idx, data=None, safe=True):
+    async def write_holding(self, def_field_name_or_idx, data=None, safe=True):
         """
         Write all provided data or the field's own data to a field.
 
@@ -826,10 +801,10 @@ class LuxtronikSmartHomeInterface:
             Base | None: The written field object, or None if the write failed.
         """
         field = self.collect_holding_for_write(def_field_name_or_idx, data, safe)
-        success = self.send()
+        success = await self.send()
         return field if success else None
 
-    def write_holdings(self, holdings):
+    async def write_holdings(self, holdings):
         """
         Write the data of all fields within the holdings data vector
         that are supported by the controller.
@@ -846,9 +821,9 @@ class LuxtronikSmartHomeInterface:
             return False
 
         self.collect_holdings_for_write(holdings)
-        return self.send()
+        return await self.send()
 
-    def write_and_read_holdings(self, holdings):
+    async def write_and_read_holdings(self, holdings):
         """
         Write and then read the data of all fields within the holdings data vector
         that are supported by the controller. All others are filled with None.
@@ -865,10 +840,9 @@ class LuxtronikSmartHomeInterface:
             return False
 
         self.collect_holdings(holdings)
-        return self.send()
+        return await self.send()
 
-
-# Input methods ###############################################################
+    # Input methods ###############################################################
 
     @classproperty
     def inputs(cls):
@@ -925,7 +899,7 @@ class LuxtronikSmartHomeInterface:
         """
         return Inputs.empty(self._version, SAFE)
 
-    def read_input(self, def_field_name_or_idx):
+    async def read_input(self, def_field_name_or_idx):
         """
         Read the data of a single field.
 
@@ -943,10 +917,10 @@ class LuxtronikSmartHomeInterface:
                 or None if the read failed.
         """
         field = self.collect_input(def_field_name_or_idx)
-        success = self.send()
+        success = await self.send()
         return field if success else None
 
-    def read_inputs(self, inputs=None):
+    async def read_inputs(self, inputs=None):
         """
         Read the data of all fields within the inputs data vector
         that are supported by the controller. All others are filled with None.
@@ -962,11 +936,10 @@ class LuxtronikSmartHomeInterface:
             inputs = self.create_inputs()
 
         self.collect_inputs(inputs)
-        self.send()
+        await self.send()
         return inputs
 
-
-# Data methods ################################################################
+    # Data methods ################################################################
 
     def create_data(self, safe=SAFE):
         """
@@ -994,7 +967,7 @@ class LuxtronikSmartHomeInterface:
         """
         return LuxtronikSmartHomeData.empty(self._version, safe)
 
-    def read_data(self, data=None):
+    async def read_data(self, data=None):
         """
         Read the data of all fields within the data vector collection
         that are supported by the controller. All others are filled with None.
@@ -1010,10 +983,10 @@ class LuxtronikSmartHomeInterface:
             data = self.create_data(SAFE)
 
         self.collect_data_for_read(data)
-        self.send()
+        await self.send()
         return data
 
-    def write_data(self, data):
+    async def write_data(self, data):
         """
         Write the data of all fields within the data vector collection
         that are supported by the controller.
@@ -1030,9 +1003,9 @@ class LuxtronikSmartHomeInterface:
             return False
 
         self.collect_data_for_write(data)
-        return self.send()
+        return await self.send()
 
-    def write_and_read_data(self, data):
+    async def write_and_read_data(self, data):
         """
         Write and then read the data of all fields within the data vector collection
         that are supported by the controller. All others are filled with None.
@@ -1049,12 +1022,11 @@ class LuxtronikSmartHomeInterface:
             return False
 
         self.collect_data(data)
-        return self.send()
+        return await self.send()
 
+    # Debug methods ###############################################################
 
-# Debug methods ###############################################################
-
-    def read_holding_raw(self, index, count=1):
+    async def read_holding_raw(self, index, count=1):
         """
         Read a specified number of registers starting at the given index,
         without performing version consistency checks.
@@ -1071,10 +1043,10 @@ class LuxtronikSmartHomeInterface:
                 otherwise None.
         """
         telegram = LuxtronikSmartHomeReadHoldingsTelegram(index + HOLDINGS_DEFINITIONS.offset, count)
-        success = self._interface.send(telegram)
+        success = await self._interface.send(telegram)
         return telegram.data if success else None
 
-    def write_holding_raw(self, index, data_arr):
+    async def write_holding_raw(self, index, data_arr):
         """
         Write all provided data to registers at the specified index,
         without performing version consistency checks.
@@ -1090,9 +1062,9 @@ class LuxtronikSmartHomeInterface:
             bool: True if no errors occurred, otherwise False.
         """
         telegram = LuxtronikSmartHomeWriteHoldingsTelegram(index + HOLDINGS_DEFINITIONS.offset, data_arr)
-        return self._interface.send(telegram)
+        return await self._interface.send(telegram)
 
-    def read_input_raw(self, index, count=1):
+    async def read_input_raw(self, index, count=1):
         """
         Read a specified number of registers starting at the given index,
         without performing version consistency checks.
@@ -1109,31 +1081,30 @@ class LuxtronikSmartHomeInterface:
                 otherwise None.
         """
         telegram = LuxtronikSmartHomeReadInputsTelegram(index + self.inputs.offset, count)
-        success = self._interface.send(telegram)
+        success = await self._interface.send(telegram)
         return telegram.data if success else None
 
+    # Standard methods ############################################################
+    # Be careful with method names!
+    # Identical named methods could be overridden in a derived class.
 
-# Standard methods ############################################################
-# Be careful with method names!
-# Identical named methods could be overridden in a derived class.
-
-    def read(self, data=None):
+    async def read(self, data=None):
         """
         Calls `read_data()`. Please check its documentation.
         Exists mainly to standardize the various interfaces.
         """
-        return self.read_data(data)
+        return await self.read_data(data)
 
-    def write(self, data):
+    async def write(self, data):
         """
         Calls `write_data()`. Please check its documentation.
         Exists mainly to standardize the various interfaces.
         """
-        return self.write_data(data)
+        return await self.write_data(data)
 
-    def write_and_read(self, data):
+    async def write_and_read(self, data):
         """
         Calls `write_and_read_data()`. Please check its documentation.
         Exists mainly to standardize the various interfaces.
         """
-        return self.write_and_read_data(data)
+        return await self.write_and_read_data(data)

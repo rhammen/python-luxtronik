@@ -22,7 +22,7 @@ classifiers = [
 ]
 requires-python = ">=3.9.0"
 dependencies = [
-    "pyModbusTCP==0.3.0"
+    "pymodbus>=3.6,<4"
 ]
 
 [project.urls]
@@ -36,6 +36,7 @@ luxtronik = "luxtronik.__main__:main"
 [project.optional-dependencies]
 dev = [
   "pytest",
+  "pytest-asyncio",
   "autoflake",
   "black",
   "flake8-comprehensions",
@@ -78,3 +79,6 @@ disable = [
 
 [tool.ruff]
 line-length = 120
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
