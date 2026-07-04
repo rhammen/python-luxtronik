@@ -30,6 +30,7 @@ VERSION_LATEST = "latest"
 # Helper methods
 ###############################################################################
 
+
 def get_version_definitions(definitions):
     """
     Retrieve all definitions that represent version fields.
@@ -47,7 +48,8 @@ def get_version_definitions(definitions):
             version_definitions.append(d)
     return version_definitions
 
-def determine_version(interface):
+
+async def determine_version(interface):
     """
     Determine the version of the luxtronik controller.
 
@@ -66,18 +68,18 @@ def determine_version(interface):
     """
     definitions = get_version_definitions(INPUTS_DEFINITIONS)
     for definition in definitions:
-        data = interface.read_inputs(definition.addr, definition.count)
+        data = await interface.read_inputs(definition.addr, definition.count)
         if data is not None:
             field = definition.create_field()
             integrate_data(definition, field, data, LUXTRONIK_SHI_REGISTER_BIT_SIZE, 0)
             parsed = parse_version(field.value)
             if parsed is not None:
                 return parsed
-    LOGGER.warning("It was not possible to determine the controller version. " \
-        + "Switch to trial-and-error mode.")
+    LOGGER.warning("It was not possible to determine the controller version. " + "Switch to trial-and-error mode.")
     return None
 
-def resolve_version(interface, version=VERSION_DETECT):
+
+async def resolve_version(interface, version=VERSION_DETECT):
     """
     Resolve the version input.
 
@@ -97,7 +99,7 @@ def resolve_version(interface, version=VERSION_DETECT):
     resolved_version = version
     if resolved_version == VERSION_DETECT:
         # return None in case of an error -> trial-and-error mode
-        resolved_version = determine_version(interface)
+        resolved_version = await determine_version(interface)
     elif isinstance(resolved_version, str):
         if resolved_version.lower() == VERSION_LATEST:
             resolved_version = LUXTRONIK_LATEST_SHI_VERSION
@@ -113,11 +115,9 @@ def resolve_version(interface, version=VERSION_DETECT):
 # Factory methods
 ###############################################################################
 
-def create_modbus_tcp(
-    host,
-    port=LUXTRONIK_DEFAULT_MODBUS_PORT,
-    timeout=LUXTRONIK_DEFAULT_MODBUS_TIMEOUT,
-    version=VERSION_DETECT
+
+async def create_modbus_tcp(
+    host, port=LUXTRONIK_DEFAULT_MODBUS_PORT, timeout=LUXTRONIK_DEFAULT_MODBUS_TIMEOUT, version=VERSION_DETECT
 ):
     """
     Create a LuxtronikSmartHomeInterface using a Modbus TCP connection.
@@ -144,7 +144,6 @@ def create_modbus_tcp(
             Initialized interface instance bound to the Modbus TCP connection.
     """
     modbus_interface = LuxtronikModbusTcpInterface(host, port, timeout)
-    resolved_version = resolve_version(modbus_interface, version)
-    LOGGER.info(f"Create smart home interface via modbus-TCP on {host}:{port}"
-        + f" for version {resolved_version}")
+    resolved_version = await resolve_version(modbus_interface, version)
+    LOGGER.info(f"Create smart home interface via modbus-TCP on {host}:{port}" + f" for version {resolved_version}")
     return LuxtronikSmartHomeInterface(modbus_interface, resolved_version)

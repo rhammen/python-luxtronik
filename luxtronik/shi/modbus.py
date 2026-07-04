@@ -1,9 +1,7 @@
-
+import asyncio
 import logging
-import time
-from pyModbusTCP.client import ModbusClient
+from pymodbus.client import AsyncModbusTcpClient
 
-from luxtronik.common import get_host_lock
 from luxtronik.shi.constants import (
     LUXTRONIK_DEFAULT_MODBUS_PORT,
     LUXTRONIK_DEFAULT_MODBUS_TIMEOUT,
@@ -23,22 +21,18 @@ LOGGER = logging.getLogger(__name__)
 # Modbus TCP interface
 ###############################################################################
 
+
 class LuxtronikModbusTcpInterface:
     """
     Luxtronik read/write interface using Modbus-TCP.
     This class is designed to offer a simple addr/count/data interface.
     There are functions to read or write individual register blocks,
     or multiple blocks in a row using a list of telegrams.
-    The connection is established only for reading and writing purposes.
-    This class was implemented with thread-safety in mind.
+    The connection is established once and kept open across calls,
+    reconnecting only if it was previously closed or dropped.
     """
 
-    def __init__(
-        self,
-        host,
-        port=LUXTRONIK_DEFAULT_MODBUS_PORT,
-        timeout=LUXTRONIK_DEFAULT_MODBUS_TIMEOUT
-    ):
+    def __init__(self, host, port=LUXTRONIK_DEFAULT_MODBUS_PORT, timeout=LUXTRONIK_DEFAULT_MODBUS_TIMEOUT):
         """
         Initialize the Modbus TCP interface for a Luxtronik host.
 
@@ -49,27 +43,33 @@ class LuxtronikModbusTcpInterface:
             timeout (float): Timeout in seconds for communication
                      (default: LUXTRONIK_DEFAULT_MODBUS_TIMEOUT).
         """
-        # Acquire a lock object for this host to ensure thread safety
-        self._lock = get_host_lock(host)
+        self._lock = asyncio.Lock()
 
-        # Create the Modbus client (connection is not opened/closed automatically)
         self._host = host
         self._port = port
-        self._client = ModbusClient(
-            host=host,
-            port=port,
-            timeout=timeout,
-            auto_open=False,
-            auto_close=False,
-        )
+        self._timeout = timeout
+        # AsyncModbusTcpClient() requires a running event loop at construction
+        # time, so it can't be built here - it is created lazily on first
+        # connect(), by which point we're always running inside a coroutine.
+        self._client = None
 
     @property
     def lock(self):
         return self._lock
 
-# Connection methods ##########################################################
+    async def connect(self):
+        """Establish the persistent Modbus connection, if not already connected."""
+        async with self._lock:
+            await self._connect()
 
-    def _connect(self):
+    async def close(self):
+        """Explicitly close the Modbus connection."""
+        async with self._lock:
+            await self._disconnect()
+
+    # Connection methods ##########################################################
+
+    async def _connect(self):
         """
         Establish a connection to the heat pump.
 
@@ -77,47 +77,39 @@ class LuxtronikModbusTcpInterface:
             bool: True if the connection was successfully established,
                 False otherwise.
         """
-        # Do nothing if client is already opened
-        if self._client.is_open:
+        if self._client is None:
+            self._client = AsyncModbusTcpClient(self._host, port=self._port, timeout=self._timeout)
+
+        # Do nothing if client is already connected
+        if self._client.connected:
             return True
 
-        self._client.open()
+        connected = await self._client.connect()
 
-        if not self._client.is_open:
-            LOGGER.error("Modbus connection failed, client did not open: " \
-                + f"{self._client.last_error_as_txt}")
-            self._client.close()
+        if not connected:
+            LOGGER.error(f"Modbus connection failed, could not connect to {self._host}:{self._port}")
             return False
-        else:
-            LOGGER.info(f"Connected to SHI of Luxtronik heat pump {self._host}:{self._port}")
 
+        LOGGER.info(f"Connected to SHI of Luxtronik heat pump {self._host}:{self._port}")
         return True
 
-    def _disconnect(self):
+    async def _disconnect(self):
         """
         Close the connection to the heat pump.
 
         Returns:
-            bool: True if the connection was successfully closed,
-                False otherwise.
+            bool: True (closing the underlying transport does not report failure).
         """
-        # Do nothing if already closed
-        if not self._client.is_open:
+        # Do nothing if never connected or already closed
+        if self._client is None or not self._client.connected:
             return True
 
         self._client.close()
-
-        if self._client.is_open:
-            LOGGER.error("Modbus disconnect failed, client still open: " \
-                + f"{self._client.last_error_as_txt}")
-            return False
-
         return True
 
+    # Common read/write methods ###################################################
 
-# Common read/write methods ###################################################
-
-    def _read_register(self, read_reg_cb, telegram):
+    async def _read_register(self, read_reg_cb, telegram):
         """
         Read Modbus registers for a single telegrams.
 
@@ -143,20 +135,19 @@ class LuxtronikModbusTcpInterface:
         # Read len(telegram.data) × 16-bit registers from Modbus address telegram.addr
         # A erroneous read usually always leads to data == None
         try:
-            data = read_reg_cb(telegram.addr, telegram.count)
-            valid = data is not None \
-                and isinstance(data, list) \
-                and len(data) == telegram.count
+            response = await read_reg_cb(telegram.addr, count=telegram.count)
+            valid = response is not None and not response.isError() and len(response.registers) == telegram.count
+            data = response.registers if valid else None
         except Exception as e:
             LOGGER.error(f"Modbus exception: {e}")
             valid = False
-        telegram.data = data if valid else None
+            data = None
+        telegram.data = data
         if not valid:
-            LOGGER.error(f"Modbus read failed: addr={telegram.addr}, " \
-                + f"count={telegram.count}, {self._client.last_error_as_txt}")
+            LOGGER.error(f"Modbus read failed: addr={telegram.addr}, count={telegram.count}")
         return valid
 
-    def _write_register(self, write_reg_cb, telegram):
+    async def _write_register(self, write_reg_cb, telegram):
         """
         Write Modbus registers for a single telegrams.
 
@@ -179,19 +170,18 @@ class LuxtronikModbusTcpInterface:
         """
         # Write len(telegram.data) × 16-bit registers at Modbus address telegram.addr
         try:
-            valid = write_reg_cb(telegram.addr, telegram.data)
+            response = await write_reg_cb(telegram.addr, telegram.data)
+            valid = response is not None and not response.isError()
         except Exception as e:
             LOGGER.error(f"Modbus exception: {e}")
             valid = False
         if not valid:
-            LOGGER.error(f"Modbus write error: addr={telegram.addr}, " \
-                + f"data={telegram.data}, {self._client.last_error_as_txt}")
+            LOGGER.error(f"Modbus write error: addr={telegram.addr}, data={telegram.data}")
         return valid
 
+    # Holding methods #############################################################
 
-# Holding methods #############################################################
-
-    def read_holdings(self, addr, count):
+    async def read_holdings(self, addr, count):
         """
         Read `count` holding 16-bit registers starting at the given Modbus
         address `addr`. The address is used directly without additional offsets.
@@ -207,10 +197,10 @@ class LuxtronikModbusTcpInterface:
                               On failure, returns None.
         """
         telegram = LuxtronikSmartHomeReadHoldingsTelegram(addr, count)
-        success = self.send(telegram)
+        success = await self.send(telegram)
         return telegram.data if success else None
 
-    def write_holdings(self, addr, data):
+    async def write_holdings(self, addr, data):
         """
         Write all values in `data` to 16-bit holding registers starting at the
         given Modbus address `addr`. The address is used directly without
@@ -226,12 +216,11 @@ class LuxtronikModbusTcpInterface:
             bool: True if the write succeeded, False otherwise.
         """
         telegram = LuxtronikSmartHomeWriteHoldingsTelegram(addr, data)
-        return self.send(telegram)
+        return await self.send(telegram)
 
+    # Inputs methods ##############################################################
 
-# Inputs methods ##############################################################
-
-    def read_inputs(self, addr, count):
+    async def read_inputs(self, addr, count):
         """
         Read `count` input 16-bit registers starting at the given Modbus
         address `addr`. The address is used directly without additional offsets.
@@ -247,13 +236,12 @@ class LuxtronikModbusTcpInterface:
                               On failure, returns None.
         """
         telegram = LuxtronikSmartHomeReadInputsTelegram(addr, count)
-        success = self.send(telegram)
+        success = await self.send(telegram)
         return telegram.data if success else None
 
+    # List methods ################################################################
 
-# List methods ################################################################
-
-    def send(self, telegrams):
+    async def send(self, telegrams):
         """
         Read/write holdings/inputs registers for one or more telegrams.
 
@@ -280,12 +268,12 @@ class LuxtronikModbusTcpInterface:
         _telegrams = telegrams
         if isinstance(_telegrams, tuple(LuxtronikSmartHomeTelegrams)):
             _telegrams = [_telegrams]
-        elif (
-            not isinstance(_telegrams, list)
-            or not all(isinstance(t, tuple(LuxtronikSmartHomeTelegrams)) for t in _telegrams)
+        elif not isinstance(_telegrams, list) or not all(
+            isinstance(t, tuple(LuxtronikSmartHomeTelegrams)) for t in _telegrams
         ):
-            LOGGER.warning(f"Invalid argument '{telegrams}': expected a " \
-                + "LuxtronikSmartHomeTelegram or a list of them.")
+            LOGGER.warning(
+                f"Invalid argument '{telegrams}': expected a " + "LuxtronikSmartHomeTelegram or a list of them."
+            )
             return False
 
         # Prepare data arrays and count total registers
@@ -301,10 +289,12 @@ class LuxtronikModbusTcpInterface:
         if total_count <= 0:
             return True
 
-        # Acquire lock, connect and read/write data. Disconnect afterwards.
+        # Acquire lock, connect (if needed) and read/write data.
+        # The connection is intentionally left open afterwards for reuse by
+        # subsequent calls; use close() to tear it down explicitly.
         success = False
-        with self._lock:
-            if self._connect():
+        async with self._lock:
+            if await self._connect():
                 success = True
                 was_write = False
                 for t in _telegrams:
@@ -319,7 +309,7 @@ class LuxtronikModbusTcpInterface:
                         reg_cb = self._client.read_input_registers
                         is_write = False
                     elif isinstance(t, LuxtronikSmartHomeWriteHoldingsTelegram):
-                        reg_cb = self._client.write_multiple_registers
+                        reg_cb = self._client.write_registers
                         is_write = True
                     else:
                         # this should never happen
@@ -328,21 +318,20 @@ class LuxtronikModbusTcpInterface:
                     # Wait a short time when switching from write to read
                     if not is_write and was_write:
                         # Allow the heat pump to process the changes
-                        time.sleep(LUXTRONIK_WAIT_TIME_AFTER_HOLDING_WRITE)
+                        await asyncio.sleep(LUXTRONIK_WAIT_TIME_AFTER_HOLDING_WRITE)
 
                     # Perform read or write operation
                     if is_write:
-                        valid = self._write_register(reg_cb, t)
+                        valid = await self._write_register(reg_cb, t)
                     else:
-                        valid = self._read_register(reg_cb, t)
+                        valid = await self._read_register(reg_cb, t)
 
                     success &= valid
                     was_write = is_write
-                self._disconnect()
 
                 # Wait a short time after a write
                 if was_write:
                     # Allow the heat pump to process the changes
-                    time.sleep(LUXTRONIK_WAIT_TIME_AFTER_HOLDING_WRITE)
+                    await asyncio.sleep(LUXTRONIK_WAIT_TIME_AFTER_HOLDING_WRITE)
 
         return success

@@ -34,7 +34,6 @@ IDX_RNW = 2
 
 
 class TestLuxtronikSmartHomeData:
-
     def test_init(self):
         data1 = LuxtronikSmartHomeData()
         assert data1.holdings is not None
@@ -60,7 +59,6 @@ class TestLuxtronikSmartHomeData:
 
 @patch("luxtronik.shi.LuxtronikModbusTcpInterface", FakeModbus)
 class TestLuxtronikSmartHomeInterface:
-
     @classmethod
     def setup_class(cls):
         cls.interface = LuxtronikSmartHomeInterface(FakeModbus(), LUXTRONIK_FIRST_VERSION_WITH_SHI)
@@ -130,14 +128,14 @@ class TestLuxtronikSmartHomeInterface:
     @pytest.mark.parametrize(
         "name, index",
         [
-            ("UNKNOWNINPUT",       None),
-            ("UNKNOWN_INPUT",      None),
-            ("UNKNOWN_INPUT_4",       4),
-            ("UNKNOWN_INPUT_4_5",  None),
+            ("UNKNOWNINPUT", None),
+            ("UNKNOWN_INPUT", None),
+            ("UNKNOWN_INPUT_4", 4),
+            ("UNKNOWN_INPUT_4_5", None),
             ("UNKNOWN_INPUT_four", None),
-            ("unknown_input_8",       8),
-            ("foo_bar_2",             2),
-        ]
+            ("unknown_input_8", 8),
+            ("foo_bar_2", 2),
+        ],
     )
     def test_index_from_name(self, name, index):
         idx = self.interface._get_index_from_name(name)
@@ -344,7 +342,7 @@ class TestLuxtronikSmartHomeInterface:
         assert not telegram_data[0][IDX_BLK][1].field.write_pending
         assert telegram_data[1][IDX_BLK][0].field.raw == 9
         assert telegram_data[2][IDX_BLK][0].field.raw == 27
-        assert telegram_data[3][IDX_BLK][0].field.raw == 17 # no update
+        assert telegram_data[3][IDX_BLK][0].field.raw == 17  # no update
         assert not telegram_data[3][IDX_BLK][0].field.write_pending
 
         # integrate not available / None -> no error
@@ -362,11 +360,11 @@ class TestLuxtronikSmartHomeInterface:
         assert not telegram_data[0][IDX_BLK][0].field.write_pending
         assert telegram_data[0][IDX_BLK][1].field.raw == 5
         assert not telegram_data[0][IDX_BLK][1].field.write_pending
-        assert telegram_data[1][IDX_BLK][0].field.raw == 9 # function not available -> no update
-        assert not telegram_data[1][IDX_BLK][0].field.write_pending # clear() -> reset flag
-        assert telegram_data[2][IDX_BLK][0].field.raw == 27 # invalid data -> no update
-        assert not telegram_data[2][IDX_BLK][0].field.write_pending # clear() -> reset flag
-        assert telegram_data[3][IDX_BLK][0].field.raw == 17 # no update
+        assert telegram_data[1][IDX_BLK][0].field.raw == 9  # function not available -> no update
+        assert not telegram_data[1][IDX_BLK][0].field.write_pending  # clear() -> reset flag
+        assert telegram_data[2][IDX_BLK][0].field.raw == 27  # invalid data -> no update
+        assert not telegram_data[2][IDX_BLK][0].field.write_pending  # clear() -> reset flag
+        assert telegram_data[3][IDX_BLK][0].field.raw == 17  # no update
         assert not telegram_data[3][IDX_BLK][0].field.write_pending
 
         # integrate too less -> error
@@ -379,14 +377,14 @@ class TestLuxtronikSmartHomeInterface:
         valid = self.interface._integrate_data(telegram_data)
         assert not valid
         # [index data, index for blocks, index for part]
-        assert telegram_data[0][IDX_BLK][0].field.raw == 19 # to less data -> no update
-        assert telegram_data[0][IDX_BLK][0].field.write_pending # no update
-        assert telegram_data[0][IDX_BLK][1].field.raw == 5 # to less data -> no update
-        assert telegram_data[0][IDX_BLK][1].field.write_pending # no update
+        assert telegram_data[0][IDX_BLK][0].field.raw == 19  # to less data -> no update
+        assert telegram_data[0][IDX_BLK][0].field.write_pending  # no update
+        assert telegram_data[0][IDX_BLK][1].field.raw == 5  # to less data -> no update
+        assert telegram_data[0][IDX_BLK][1].field.write_pending  # no update
         assert telegram_data[1][IDX_BLK][0].field.raw == 2
         assert not telegram_data[1][IDX_BLK][0].field.write_pending
-        assert telegram_data[2][IDX_BLK][0].field.raw == 27 # invalid data -> no update
-        assert telegram_data[3][IDX_BLK][0].field.raw == 17 # to less data -> no update
+        assert telegram_data[2][IDX_BLK][0].field.raw == 27  # invalid data -> no update
+        assert telegram_data[3][IDX_BLK][0].field.raw == 17  # to less data -> no update
 
     def test_prepare(self):
         definition = HOLDINGS_DEFINITIONS[2]
@@ -442,7 +440,7 @@ class TestLuxtronikSmartHomeInterface:
         # not supported read
         valid = self.interface._prepare_read_field(definition, field)
         assert not valid
-        assert field.raw == 1 # not supported -> no update
+        assert field.raw == 1  # not supported -> no update
 
         # not supported write
         field.raw = 1
@@ -450,7 +448,7 @@ class TestLuxtronikSmartHomeInterface:
         assert not valid
         assert field.raw == 1
 
-    def test_collect_field(self):
+    async def test_collect_field(self):
         blocks_list = []
 
         # could not collect via None
@@ -459,7 +457,7 @@ class TestLuxtronikSmartHomeInterface:
         assert len(blocks_list) == 0
 
         # could not collect via string
-        field = self.interface._collect_field(blocks_list, 'foo', HOLDINGS_DEFINITIONS, True, True, None)
+        field = self.interface._collect_field(blocks_list, "foo", HOLDINGS_DEFINITIONS, True, True, None)
         assert field is None
         assert len(blocks_list) == 0
 
@@ -513,7 +511,7 @@ class TestLuxtronikSmartHomeInterface:
         assert blocks_list[1][0][0].definition.index == 1
         assert blocks_list[1][0][0].field is field
 
-        valid = self.interface._send_and_integrate(blocks_list)
+        valid = await self.interface._send_and_integrate(blocks_list)
         assert valid
         assert len(FakeModbus.telegram_list) == 2
         assert type(FakeModbus.telegram_list[0]) is LuxtronikSmartHomeReadHoldingsTelegram
@@ -523,7 +521,7 @@ class TestLuxtronikSmartHomeInterface:
         assert FakeModbus.telegram_list[1].addr == 10000 + 1
         assert FakeModbus.telegram_list[1].count == 1
 
-    def test_collect_fields(self):
+    async def test_collect_fields(self):
         blocks_list = []
 
         # could not collect via None
@@ -533,8 +531,8 @@ class TestLuxtronikSmartHomeInterface:
         data_vector = Holdings.empty(LUXTRONIK_FIRST_VERSION_WITH_SHI)
         data_vector.add(0)
         data_vector.add(2)
-        data_vector.add(3) # not supported
-        data_vector.add(4) # does not exist
+        data_vector.add(3)  # not supported
+        data_vector.add(4)  # does not exist
         data_vector.add(5)
         data_vector.add(6)
         data_vector.add(7)
@@ -560,9 +558,9 @@ class TestLuxtronikSmartHomeInterface:
         assert blocks_list[0][2][1].definition.index == 6
         assert blocks_list[0][2][2].definition.index == 7
 
-        data_vector[0].value = 'Setpoint'
-        data_vector[1] = 20 # not added
-        data_vector.set(5, 'Setpoint')
+        data_vector[0].value = "Setpoint"
+        data_vector[1] = 20  # not added
+        data_vector.set(5, "Setpoint")
         data_vector[6] = 40
 
         # collect write
@@ -579,10 +577,10 @@ class TestLuxtronikSmartHomeInterface:
         assert blocks_list[1][1].overall_count == 2
         assert len(blocks_list[1][1]) == 2
         # part
-        assert blocks_list[1][1][0].field.value == 'Setpoint'
+        assert blocks_list[1][1][0].field.value == "Setpoint"
         assert blocks_list[1][1][1].field.value == 40
 
-        self.interface._send_and_integrate(blocks_list)
+        await self.interface._send_and_integrate(blocks_list)
         assert len(FakeModbus.telegram_list) == 5
         assert type(FakeModbus.telegram_list[0]) is LuxtronikSmartHomeReadHoldingsTelegram
         assert FakeModbus.telegram_list[0].addr == 10000 + 0
@@ -600,8 +598,7 @@ class TestLuxtronikSmartHomeInterface:
         assert FakeModbus.telegram_list[4].addr == 10000 + 5
         assert FakeModbus.telegram_list[4].count == 2
 
-
-    def test_collect_field2(self):
+    async def test_collect_field2(self):
         self.interface._blocks_list = []
 
         h2 = self.interface.holdings.get(2).create_field()
@@ -653,7 +650,7 @@ class TestLuxtronikSmartHomeInterface:
         field = self.interface.collect_holding_for_read(h3)
         assert len(self.interface._blocks_list) == 5
         assert field is None
-        assert h3.raw == 3 # not supported -> no update
+        assert h3.raw == 3  # not supported -> no update
 
         h3.raw = 3
         h3.write_pending = True
@@ -675,7 +672,7 @@ class TestLuxtronikSmartHomeInterface:
         field = self.interface.collect_input(i109)
         assert len(self.interface._blocks_list) == 5
         assert field is None
-        assert i109.raw == 109 # not read -> no update
+        assert i109.raw == 109  # not read -> no update
 
         # not collect not existing
         field = self.interface.collect_holding_for_read(4)
@@ -694,10 +691,10 @@ class TestLuxtronikSmartHomeInterface:
         assert len(self.interface._blocks_list) == 5
         assert field is None
 
-        self.interface.send()
+        await self.interface.send()
         assert len(self.interface._blocks_list) == 0
 
-    def test_collect_fields2(self):
+    async def test_collect_fields2(self):
         self.interface._blocks_list = []
 
         h = self.interface.create_holdings()
@@ -716,7 +713,7 @@ class TestLuxtronikSmartHomeInterface:
         self.interface.collect_holdings_for_write(h[0])
         assert len(self.interface._blocks_list) == 1
 
-        h[0] = 'Setpoint'
+        h[0] = "Setpoint"
         self.interface.collect_holdings(h)
         assert len(self.interface._blocks_list) == 3
         assert self.interface._blocks_list[1].type_name == "holding"
@@ -747,7 +744,7 @@ class TestLuxtronikSmartHomeInterface:
         self.interface.collect_data_for_read(i)
         assert len(self.interface._blocks_list) == 6
 
-        d.holdings[0] = 'Setpoint'
+        d.holdings[0] = "Setpoint"
         self.interface.collect_data_for_write(d)
         assert len(self.interface._blocks_list) == 7
         assert self.interface._blocks_list[6].type_name == "holding"
@@ -768,7 +765,7 @@ class TestLuxtronikSmartHomeInterface:
         self.interface.collect_data(None)
         assert len(self.interface._blocks_list) == 10
 
-        self.interface.send()
+        await self.interface.send()
         assert len(self.interface._blocks_list) == 0
 
     def test_create_holding(self):
@@ -815,44 +812,44 @@ class TestLuxtronikSmartHomeInterface:
         field = vector[2]
         assert field is None
 
-    def test_read_holding(self):
+    async def test_read_holding(self):
         FakeModbus.result = False
 
         # read field with error
-        field = self.interface.read_holding(2)
+        field = await self.interface.read_holding(2)
         assert field is None
 
         # read vector with error
-        vector = self.interface.read_holdings()
+        vector = await self.interface.read_holdings()
         assert vector.safe
         # provided data will be integrated
         assert vector[2].raw == 2
 
         # read empty vector
         vector = self.interface.create_empty_holdings(False)
-        self.interface.read_holdings(vector)
+        await self.interface.read_holdings(vector)
         assert not vector.safe
         assert vector[2] is None
 
         FakeModbus.result = True
 
         # read field
-        field = self.interface.read_holding(2)
+        field = await self.interface.read_holding(2)
         assert field is not None
         assert field.raw == 2
 
         # read vector
-        vector = self.interface.read_holdings()
+        vector = await self.interface.read_holdings()
         assert vector.safe
         assert vector[2].raw == 2
 
         # read empty vector
         vector = self.interface.create_empty_holdings(False)
-        self.interface.read_holdings(vector)
+        await self.interface.read_holdings(vector)
         assert not vector.safe
         assert vector[2] is None
 
-    def test_write_holding(self):
+    async def test_write_holding(self):
 
         # prepare
         vector = self.interface.create_empty_holdings(True)
@@ -862,54 +859,54 @@ class TestLuxtronikSmartHomeInterface:
         FakeModbus.result = False
 
         # write field with error
-        field = self.interface.write_holding(2, 19)
+        field = await self.interface.write_holding(2, 19)
         assert field is None
 
         # write vector with error
         field_2.value = 20
-        success = self.interface.write_holdings(vector)
+        success = await self.interface.write_holdings(vector)
         assert not success
 
         # write None
-        success = self.interface.write_holdings(2)
+        success = await self.interface.write_holdings(2)
         assert not success
 
         # write and read vector with error
         field_2.value = 20
-        success = self.interface.write_and_read_holdings(vector)
+        success = await self.interface.write_and_read_holdings(vector)
         assert not success
 
         # write and read None
-        success = self.interface.write_and_read_holdings(4)
+        success = await self.interface.write_and_read_holdings(4)
         assert not success
 
         FakeModbus.result = True
 
         # write field
-        field = self.interface.write_holding(2, 19)
+        field = await self.interface.write_holding(2, 19)
         assert isinstance(field, Base)
         assert field.value == 19
 
         # write vector
         field_2.value = 20
-        success = self.interface.write_holdings(vector)
+        success = await self.interface.write_holdings(vector)
         assert success
 
         # write and read vector
         field_2.value = 20
-        success = self.interface.write_and_read_holdings(vector)
+        success = await self.interface.write_and_read_holdings(vector)
         assert success
 
         # write none
-        success = self.interface.write_holdings(None)
+        success = await self.interface.write_holdings(None)
         assert not success
-        success = self.interface.write_holdings(7)
+        success = await self.interface.write_holdings(7)
         assert not success
 
         # write and read none
-        success = self.interface.write_and_read_holdings(None)
+        success = await self.interface.write_and_read_holdings(None)
         assert not success
-        success = self.interface.write_and_read_holdings(18)
+        success = await self.interface.write_and_read_holdings(18)
         assert not success
 
     def test_create_input(self):
@@ -953,40 +950,40 @@ class TestLuxtronikSmartHomeInterface:
         field = vector[105]
         assert field is None
 
-    def test_read_input(self):
+    async def test_read_input(self):
         FakeModbus.result = False
 
         # read field with error
-        field = self.interface.read_input(105)
+        field = await self.interface.read_input(105)
         assert field is None
 
         # read vector with error
-        vector = self.interface.read_inputs()
+        vector = await self.interface.read_inputs()
         assert vector.safe
         # provided data will be integrated
         assert vector[105].raw == 105
 
         # read empty vector
         vector = self.interface.create_empty_inputs()
-        self.interface.read_inputs(vector)
+        await self.interface.read_inputs(vector)
         assert vector.safe
         assert vector[105] is None
 
         FakeModbus.result = True
 
         # read field
-        field = self.interface.read_input(105)
+        field = await self.interface.read_input(105)
         assert field is not None
         assert field.raw == 105
 
         # read vector
-        vector = self.interface.read_inputs()
+        vector = await self.interface.read_inputs()
         assert vector.safe
         assert vector[105].raw == 105
 
         # read empty vector
         vector = self.interface.create_empty_inputs()
-        self.interface.read_inputs(vector)
+        await self.interface.read_inputs(vector)
         assert vector.safe
         assert vector[105] is None
 
@@ -1015,44 +1012,44 @@ class TestLuxtronikSmartHomeInterface:
         field = data.holdings[2]
         assert field is None
 
-    def test_read_data(self):
+    async def test_read_data(self):
         FakeModbus.result = False
 
         # read data with error
-        data = self.interface.read_data()
+        data = await self.interface.read_data()
         assert data.holdings.safe
         # provided data will be integrated
         assert data.holdings[2].raw == 2
 
-        data = self.interface.read()
+        data = await self.interface.read()
         assert data.holdings.safe
         # provided data will be integrated
         assert data.holdings[2].raw == 2
 
         # read empty data
         data = self.interface.create_empty_data(False)
-        self.interface.read_data(data)
+        await self.interface.read_data(data)
         assert not data.holdings.safe
         assert data.holdings[2] is None
 
         FakeModbus.result = True
 
         # read data
-        data = self.interface.read_data()
+        data = await self.interface.read_data()
         assert data.holdings.safe
         assert data.holdings[2].raw == 2
 
-        data = self.interface.read()
+        data = await self.interface.read()
         assert data.holdings.safe
         assert data.holdings[2].raw == 2
 
         # read empty data
         data = self.interface.create_empty_data(False)
-        self.interface.read_data(data)
+        await self.interface.read_data(data)
         assert not data.holdings.safe
         assert data.holdings[2] is None
 
-    def test_write_data(self):
+    async def test_write_data(self):
 
         # prepare
         data = self.interface.create_empty_data(True)
@@ -1063,88 +1060,88 @@ class TestLuxtronikSmartHomeInterface:
 
         # write data with error
         field_2.value = 20
-        success = self.interface.write_data(data)
+        success = await self.interface.write_data(data)
         assert not success
 
         field_2.value = 20
-        success = self.interface.write(data)
+        success = await self.interface.write(data)
         assert not success
 
         # write None
-        success = self.interface.write(None)
+        success = await self.interface.write(None)
         assert not success
 
         # write and read data with error
         field_2.value = 20
-        success = self.interface.write_and_read_data(data)
+        success = await self.interface.write_and_read_data(data)
         assert not success
 
         field_2.value = 20
-        success = self.interface.write_and_read(data)
+        success = await self.interface.write_and_read(data)
         assert not success
 
         # write and read None
-        success = self.interface.write_and_read(None)
+        success = await self.interface.write_and_read(None)
         assert not success
 
         FakeModbus.result = True
 
         # write vector
         field_2.value = 20
-        success = self.interface.write_data(data)
+        success = await self.interface.write_data(data)
         assert success
 
         field_2.value = 20
-        success = self.interface.write(data)
+        success = await self.interface.write(data)
         assert success
 
         # write and read data
         field_2.value = 20
-        success = self.interface.write_and_read_data(data)
+        success = await self.interface.write_and_read_data(data)
         assert success
 
         field_2.value = 20
-        success = self.interface.write_and_read(data)
+        success = await self.interface.write_and_read(data)
         assert success
 
         # write none
-        success = self.interface.write_data(None)
+        success = await self.interface.write_data(None)
         assert not success
 
-        success = self.interface.write(None)
+        success = await self.interface.write(None)
         assert not success
 
         # write and read none
-        success = self.interface.write_and_read_data(None)
+        success = await self.interface.write_and_read_data(None)
         assert not success
 
-        success = self.interface.write_and_read(None)
+        success = await self.interface.write_and_read(None)
         assert not success
 
-    def test_raw(self):
+    async def test_raw(self):
         FakeModbus.result = False
 
-        data = self.interface.read_holding_raw(1, 3)
+        data = await self.interface.read_holding_raw(1, 3)
         assert data is None
 
-        success = self.interface.write_holding_raw(1, [7, 6, 3])
+        success = await self.interface.write_holding_raw(1, [7, 6, 3])
         assert not success
 
-        data = self.interface.read_input_raw(2, 5)
+        data = await self.interface.read_input_raw(2, 5)
         assert data is None
 
         FakeModbus.result = True
 
-        data = self.interface.read_holding_raw(1, 3)
+        data = await self.interface.read_holding_raw(1, 3)
         assert data == [1, 2, 3]
 
-        success = self.interface.write_holding_raw(1, [7, 6, 3])
+        success = await self.interface.write_holding_raw(1, [7, 6, 3])
         assert success
 
-        data = self.interface.read_input_raw(2, 5)
+        data = await self.interface.read_input_raw(2, 5)
         assert data == [2, 3, 4, 5, 6]
 
-    def test_read_then_write(self):
+    async def test_read_then_write(self):
         field = self.interface.create_holding(2)
 
         field.value = 20
@@ -1154,7 +1151,7 @@ class TestLuxtronikSmartHomeInterface:
         self.interface.collect_holding_for_write(field, 32)
         assert field.value == 32
 
-        self.interface.read_input(0)
+        await self.interface.read_input(0)
         assert len(FakeModbus.telegram_list) == 3
         assert FakeModbus.telegram_list[0].data == [2]
         assert FakeModbus.telegram_list[1].data == [32 * 10]
@@ -1162,7 +1159,7 @@ class TestLuxtronikSmartHomeInterface:
 
         assert field.raw == 2
 
-    def test_write_then_read(self):
+    async def test_write_then_read(self):
         field = self.interface.create_holding(2)
 
         self.interface.collect_holding_for_write(field, 32)
@@ -1173,7 +1170,7 @@ class TestLuxtronikSmartHomeInterface:
 
         field.value = 42
 
-        self.interface.read_input(0)
+        await self.interface.read_input(0)
         assert len(FakeModbus.telegram_list) == 3
         assert FakeModbus.telegram_list[0].data == [42 * 10]
         assert FakeModbus.telegram_list[1].data == [2]
@@ -1181,16 +1178,16 @@ class TestLuxtronikSmartHomeInterface:
 
         assert field.raw == 2
 
-    def test_trial_and_error_mode(self):
+    async def test_trial_and_error_mode(self):
 
         # prepare
         interface = LuxtronikSmartHomeInterface(FakeModbus(), None)
 
         holdings = Holdings.empty(None)
-        h0 = holdings.add(0) # 3.90.1
-        h1 = holdings.add(1) # 3.90.1
-        h2 = holdings.add(2) # 3.90.1
-        h3 = holdings.add(3) # 3.92.0
+        h0 = holdings.add(0)  # 3.90.1
+        h1 = holdings.add(1)  # 3.90.1
+        h2 = holdings.add(2)  # 3.90.1
+        h3 = holdings.add(3)  # 3.92.0
         h4 = holdings.add(4)
         assert h4 is None
 
@@ -1221,37 +1218,37 @@ class TestLuxtronikSmartHomeInterface:
         assert interface._blocks_list[1][1][0].field == h3
 
         # add not existing read (success)
-        field = interface.collect_holding_for_read('unknown_foo_4')
+        field = interface.collect_holding_for_read("unknown_foo_4")
         assert type(field) is Unknown
         assert len(interface._blocks_list) == 3
         assert len(interface._blocks_list[2]) == 1
         assert len(interface._blocks_list[2][0]) == 1
-        assert interface._blocks_list[2][0][0].definition.name == 'unknown_holding_4'
+        assert interface._blocks_list[2][0][0].definition.name == "unknown_holding_4"
         assert interface._blocks_list[2][0][0].definition.index == 4
         assert interface._blocks_list[2][0][0].definition.count == 1
-        assert interface._blocks_list[2][0][0].field.name == 'unknown_holding_4'
+        assert interface._blocks_list[2][0][0].field.name == "unknown_holding_4"
         assert not interface._blocks_list[2][0][0].field.writeable
 
         # add not existing read (fail)
-        field = interface.collect_holding_for_read('bar_foo_4')
+        field = interface.collect_holding_for_read("bar_foo_4")
         assert field is None
         assert len(interface._blocks_list) == 3
 
         # add not existing write (success)
-        field = interface.collect_holding_for_write('unknown_bar_4', 16, False)
+        field = interface.collect_holding_for_write("unknown_bar_4", 16, False)
         assert type(field) is Unknown
         assert len(interface._blocks_list) == 4
         assert len(interface._blocks_list[3]) == 1
         assert len(interface._blocks_list[3][0]) == 1
-        assert interface._blocks_list[3][0][0].field.name == 'unknown_holding_4'
+        assert interface._blocks_list[3][0][0].field.name == "unknown_holding_4"
         assert not interface._blocks_list[3][0][0].field.writeable
 
         # add not existing write (success)
-        field = interface.collect_holding_for_write('unknown_bar_4', 17, True)
+        field = interface.collect_holding_for_write("unknown_bar_4", 17, True)
         assert field is None
         assert len(interface._blocks_list) == 4
 
-        interface.send()
+        await interface.send()
         offset = interface.holdings.offset
         assert len(FakeModbus.telegram_list) == 8
         assert type(FakeModbus.telegram_list[0]) is LuxtronikSmartHomeReadHoldingsTelegram
@@ -1282,7 +1279,6 @@ class TestLuxtronikSmartHomeInterface:
         assert FakeModbus.telegram_list[7].count == 1
         assert FakeModbus.telegram_list[7].data == [16]
 
-
     def check_definitions(self, interface):
         definitions = interface.get_holdings(False)
         vector = interface.create_holdings()
@@ -1306,34 +1302,34 @@ class TestLuxtronikSmartHomeInterface:
             assert f.name in definitions
             assert f.name in interface.inputs
 
-    def test_create_modbus(self):
-        interface = create_modbus_tcp('host', version=None)
+    async def test_create_modbus(self):
+        interface = await create_modbus_tcp("host", version=None)
         assert interface.version is None
         self.check_definitions(interface)
 
-        interface = create_modbus_tcp('host', version=1)
+        interface = await create_modbus_tcp("host", version=1)
         assert interface.version is None
         self.check_definitions(interface)
 
-        interface = create_modbus_tcp('host', version="1.2.3")
+        interface = await create_modbus_tcp("host", version="1.2.3")
         assert interface.version == (1, 2, 3, 0)
         self.check_definitions(interface)
 
-        interface = create_modbus_tcp('host', version="latest")
+        interface = await create_modbus_tcp("host", version="latest")
         assert interface.version == LUXTRONIK_LATEST_SHI_VERSION
         self.check_definitions(interface)
 
-        interface = create_modbus_tcp('host', version=LUXTRONIK_FIRST_VERSION_WITH_SHI)
+        interface = await create_modbus_tcp("host", version=LUXTRONIK_FIRST_VERSION_WITH_SHI)
         assert interface.version == LUXTRONIK_FIRST_VERSION_WITH_SHI
         self.check_definitions(interface)
 
-        interface = create_modbus_tcp('host')
+        interface = await create_modbus_tcp("host")
         assert interface.version == (400, 401, 402, 0)
         self.check_definitions(interface)
 
         FakeModbus.result = False
 
-        interface = create_modbus_tcp('host')
+        interface = await create_modbus_tcp("host")
         assert interface.version is None
         self.check_definitions(interface)
 
